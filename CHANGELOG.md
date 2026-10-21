@@ -1,5 +1,9 @@
 # Changelog
 
+## fsh-loupe 1.1.0 (unreleased)
+
+Built on fsh 1.1.0.
+
 ## fsh-loupe 1.0.0 (2026-10-21)
 
 First release: a Loupe debugging adapter for fsh, built on fsh 1.0.0 and parley-loupe 1.0.0.
