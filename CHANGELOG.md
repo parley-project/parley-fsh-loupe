@@ -4,6 +4,12 @@
 
 Built on fsh 1.1.0.
 
+### Fixed
+
+- Paging frames and variables: a negative `start` or `count` is refused with `INVALID_PARAMS`, and a
+  huge `count` (`start + count` past an int) gives the rest of the list; both used to throw an
+  internal error.
+
 ## fsh-loupe 1.0.0 (2026-10-21)
 
 First release: a Loupe debugging adapter for fsh, built on fsh 1.0.0 and parley-loupe 1.0.0.
