@@ -689,9 +689,14 @@ public class FshBackend implements TargetBackend {
 		return CompletableFuture.completedFuture(v);
 	}
 
-	private static <T> List<T> page(List<T> all, Integer start, Integer count) {
+	/** The part of all a request asked for: from start (default 0), at most count (default all). */
+	static <T> List<T> page(List<T> all, Integer start, Integer count) {
+		if( (start != null && start < 0) || (count != null && count < 0) ) {
+			throw new LoupeException(LoupeException.INVALID_PARAMS, "start and count can't be negative");
+		}
 		int from = Math.min(start == null ? 0 : start, all.size());
-		int to = count == null ? all.size() : Math.min(all.size(), from+count);
+		// long: from+count can be more than an int holds
+		int to = count == null ? all.size() : (int) Math.min(all.size(), (long) from+count);
 		return all.subList(from, to);
 	}
 
