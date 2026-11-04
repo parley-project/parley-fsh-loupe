@@ -104,8 +104,9 @@ import us.bringardner.parley.loupe.protocol.VariablesResult;
  * {@code $((n+1))}).
  * <p>
  * Launch arguments: {@code script} (a path, any parley-files file system) or {@code source}
- * (the text) with {@code name} (what to call it: $0), and {@code args} (the script's
- * arguments).
+ * (the text) with {@code name} (what to call it: $0), {@code args} (the script's
+ * arguments) and {@code env} (variables to run it with, exported, over the adapter's own
+ * environment). As {@code fsh script} does, it runs the file {@code FSH_ENV} names first.
  */
 public class FshBackend implements TargetBackend {
 
@@ -121,6 +122,8 @@ public class FshBackend implements TargetBackend {
 		props.put("source", Map.of("type", "string", "description", "The script's text, instead of a path"));
 		props.put("name", Map.of("type", "string", "description", "$0: what to call the script when it is given as source"));
 		props.put("args", Map.of("type", "array", "items", Map.of("type", "string"), "description", "The script's arguments"));
+		props.put("env", Map.of("type", "object", "additionalProperties", Map.of("type", "string"),
+				"description", "Environment variables to run the script with (exported), over the adapter's own"));
 		Map<String,Object> schema = new LinkedHashMap<>();
 		schema.put("type", "object");
 		schema.put("properties", props);
@@ -215,6 +218,17 @@ public class FshBackend implements TargetBackend {
 				scriptArgs.add(String.valueOf(o));
 			}
 		}
+		Map<String,String> scriptEnv = new LinkedHashMap<>();
+		Object env = a.get("env");
+		if( env instanceof Map ) {
+			for(Map.Entry<Object,Object> e : ((Map<Object,Object>) env).entrySet()) {
+				if( e.getKey() != null && e.getValue() != null ) {
+					scriptEnv.put(String.valueOf(e.getKey()), String.valueOf(e.getValue()));
+				}
+			}
+		} else if( env != null ) {
+			throw new LoupeException(LoupeException.INVALID_PARAMS, "env is an object of names and values");
+		}
 		this.target = target;
 		launched = new CompletableFuture<>();
 		boolean startPaused = target.isStartPaused();
@@ -224,7 +238,7 @@ public class FshBackend implements TargetBackend {
 		}
 
 		String scriptName = name;
-		Thread t = new Thread(null, () -> run(target, code, scriptName, scriptArgs), "fsh-script", 4*1024*1024);
+		Thread t = new Thread(null, () -> run(target, code, scriptName, scriptArgs, scriptEnv), "fsh-script", 4*1024*1024);
 		t.setDaemon(true);
 		t.start();
 		if( !startPaused ) {
@@ -248,7 +262,7 @@ public class FshBackend implements TargetBackend {
 		}
 	}
 
-	private void run(Target target, String code, String name, List<String> args) {
+	private void run(Target target, String code, String name, List<String> args, Map<String,String> env) {
 		int exit = 0;
 		PrintStream out = null;
 		PrintStream err = null;
@@ -266,6 +280,16 @@ public class FshBackend implements TargetBackend {
 				list.add(new Argument(s));
 			}
 			c.setPositionalParameters(true, list);
+			for(Map.Entry<String,String> e : env.entrySet()) {
+				c.setEnvironmentVariable(e.getKey(), e.getValue());
+			}
+			// the startup file a script has, as fsh script: FSH_ENV's (before the debugger: it
+			// doesn't stop in it)
+			try {
+				c.runStartupFiles(us.bringardner.fsh.Invocation.parse());
+			} catch (us.bringardner.fsh.Invocation.Bad e) {
+				// (no words: nothing to be wrong)
+			}
 			Debug d = new Debug();
 			d.setCurrentState(DebugContext.RunState.Running);
 			c.setDebugContext(d);

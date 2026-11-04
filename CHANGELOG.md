@@ -4,6 +4,13 @@
 
 Built on fsh 1.1.0.
 
+### Added
+
+- The launch argument `env`: environment variables (names and values) the script runs with,
+  exported, over the adapter's own. fsh-ide gives it the environment a terminal's login shell has.
+- As `fsh script` does, the script runs the file `FSH_ENV` names first (before the debugger is
+  on, so it doesn't stop in that file).
+
 ### Fixed
 
 - Paging frames and variables: a negative `start` or `count` is refused with `INVALID_PARAMS`, and a
