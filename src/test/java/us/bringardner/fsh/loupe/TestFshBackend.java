@@ -248,6 +248,26 @@ public class TestFshBackend {
 		assertTrue(output.contains("stdout: done 6\n"), output.toString());
 	}
 
+	/** env: the script runs with those variables (exported), and FSH_ENV's file first, as fsh script. */
+	@Test
+	public void runsWithTheEnvironmentGivenAndFshEnvFirst() throws Exception {
+		java.nio.file.Path rc = java.nio.file.Files.createTempFile("fsh-env", ".fsh");
+		try {
+			java.nio.file.Files.writeString(rc, "greet() { echo \"hello $WHO\"; }\n");
+			String script = "greet\nsh -c 'echo child $WHO'\n";
+			call("launch", null, Map.of("target", "t1", "startPaused", false,
+					"args", Map.of("source", script, "name", "env.fsh",
+							"env", Map.of("WHO", "tony", "FSH_ENV", rc.toString()))));
+			Map<String,Object> end = next("targetState", "terminated");
+			assertEquals(0L, end.get("exitCode"), output.toString());
+			assertTrue(output.contains("stdout: hello tony\n"), output.toString());
+			// exported: a program the script runs has it
+			assertTrue(String.join("", output).contains("child tony"), output.toString());
+		} finally {
+			java.nio.file.Files.deleteIfExists(rc);
+		}
+	}
+
 	@Test
 	public void terminateEndsAStoppedScript() throws Exception {
 		launch(true);
