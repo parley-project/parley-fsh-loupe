@@ -82,74 +82,75 @@ public class TestFshThroughDap {
 	@Test
 	public void anEditorSessionFromLaunchToTheEnd() throws Exception {
 		try (ServerSocket loupeServer = new ServerSocket(0, 1, InetAddress.getLoopbackAddress());
-				ServerSocket dapServer = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
-			Socket bridgeToLoupe = new Socket(InetAddress.getLoopbackAddress(), loupeServer.getLocalPort());
+				ServerSocket dapServer = new ServerSocket(0, 1, InetAddress.getLoopbackAddress());
+				Socket bridgeToLoupe = new Socket(InetAddress.getLoopbackAddress(), loupeServer.getLocalPort())) {
 			Socket loupe = loupeServer.accept();
 			LoupeConnection adapter = LoupeConnection.serve(FshAdapterMain::handler, loupe.getInputStream(), loupe.getOutputStream());
-			Socket clientToBridge = new Socket(InetAddress.getLoopbackAddress(), dapServer.getLocalPort());
-			Socket bridgeSide = dapServer.accept();
-			DapConnection bridge = DapBridge.open(bridgeSide.getInputStream(), bridgeSide.getOutputStream(),
-					bridgeToLoupe.getInputStream(), bridgeToLoupe.getOutputStream());
-			DapConnection client = DapConnection.client(new IDebugClient() {
-				@Override
-				public void initialized() {
-					events.add("initialized");
-				}
+			try (Socket clientToBridge = new Socket(InetAddress.getLoopbackAddress(), dapServer.getLocalPort())) {
+				Socket bridgeSide = dapServer.accept();
+				DapConnection bridge = DapBridge.open(bridgeSide.getInputStream(), bridgeSide.getOutputStream(),
+						bridgeToLoupe.getInputStream(), bridgeToLoupe.getOutputStream());
+				DapConnection client = DapConnection.client(new IDebugClient() {
+					@Override
+					public void initialized() {
+						events.add("initialized");
+					}
 
-				@Override
-				public void stopped(StoppedEventBody b) {
-					events.add("stopped "+b.getReason());
-				}
+					@Override
+					public void stopped(StoppedEventBody b) {
+						events.add("stopped "+b.getReason());
+					}
 
-				@Override
-				public void output(OutputEventBody b) {
-					outputs.add(b.getCategory()+" "+b.getOutput());
-				}
+					@Override
+					public void output(OutputEventBody b) {
+						outputs.add(b.getCategory()+" "+b.getOutput());
+					}
 
-				@Override
-				public void exited(ExitedEventBody b) {
-					events.add("exited "+b.getExitCode());
-				}
+					@Override
+					public void exited(ExitedEventBody b) {
+						events.add("exited "+b.getExitCode());
+					}
 
-				@Override
-				public void terminated(us.bringardner.parley.dap.protocol.TerminatedEventBody b) {
-					events.add("terminated");
-				}
-			}, clientToBridge.getInputStream(), clientToBridge.getOutputStream());
-			try {
-				IDebugAdapter dap = client.getAdapter();
-				get(dap.initialize(new InitializeRequestArguments().setAdapterID("fsh")));
-				get(dap.launch(LaunchRequestArguments.fromJson(Json.parse(
-						"{\"source\":"+Json.write(TestFshBackend.SCRIPT)+",\"name\":\"demo.fsh\"}"))));
-				assertEquals("initialized", event("initialized"));
-				get(dap.setBreakpoints(SetBreakpointsArguments.fromJson(Json.parse(
-						"{\"source\":{\"path\":\"demo.fsh\"},\"breakpoints\":[{\"line\":10}]}"))));
-				get(dap.configurationDone(new ConfigurationDoneArguments()));
+					@Override
+					public void terminated(us.bringardner.parley.dap.protocol.TerminatedEventBody b) {
+						events.add("terminated");
+					}
+				}, clientToBridge.getInputStream(), clientToBridge.getOutputStream());
+				try {
+					IDebugAdapter dap = client.getAdapter();
+					get(dap.initialize(new InitializeRequestArguments().setAdapterID("fsh")));
+					get(dap.launch(LaunchRequestArguments.fromJson(Json.parse(
+							"{\"source\":"+Json.write(TestFshBackend.SCRIPT)+",\"name\":\"demo.fsh\"}"))));
+					assertEquals("initialized", event("initialized"));
+					get(dap.setBreakpoints(SetBreakpointsArguments.fromJson(Json.parse(
+							"{\"source\":{\"path\":\"demo.fsh\"},\"breakpoints\":[{\"line\":10}]}"))));
+					get(dap.configurationDone(new ConfigurationDoneArguments()));
 
-				assertEquals("stopped breakpoint", event("stopped"));
-				StackFrame frame = get(dap.stackTrace(StackTraceArguments.fromJson(Json.parse("{\"threadId\":1}")))).getStackFrames().get(0);
-				assertEquals(10, frame.getLine());
-				assertEquals("main", frame.getName());
-				int vars = get(dap.scopes(new ScopesArguments().setFrameId(frame.getId()))).getScopes().get(0).getVariablesReference();
-				List<Variable> list = get(dap.variables(new VariablesArguments().setVariablesReference(vars))).getVariables();
-				assertTrue(list.stream().anyMatch(v -> v.getName().equals("count") && v.getValue().equals("\"6\"")), list.toString());
-				assertEquals("60", get(dap.evaluate(new EvaluateArguments().setExpression("$((count * 10))")
-						.setFrameId(frame.getId()).setContext("repl"))).getResult().replace("\"", ""));
+					assertEquals("stopped breakpoint", event("stopped"));
+					StackFrame frame = get(dap.stackTrace(StackTraceArguments.fromJson(Json.parse("{\"threadId\":1}")))).getStackFrames().get(0);
+					assertEquals(10, frame.getLine());
+					assertEquals("main", frame.getName());
+					int vars = get(dap.scopes(new ScopesArguments().setFrameId(frame.getId()))).getScopes().get(0).getVariablesReference();
+					List<Variable> list = get(dap.variables(new VariablesArguments().setVariablesReference(vars))).getVariables();
+					assertTrue(list.stream().anyMatch(v -> v.getName().equals("count") && v.getValue().equals("\"6\"")), list.toString());
+					assertEquals("60", get(dap.evaluate(new EvaluateArguments().setExpression("$((count * 10))")
+							.setFrameId(frame.getId()).setContext("repl"))).getResult().replace("\"", ""));
 
-				get(dap.continue_(new ContinueArguments().setThreadId(1)));
-				assertEquals("exited 0", event("exited"));
-				assertEquals("terminated", event("terminated"));
-				StringBuilder all = new StringBuilder();
-				String o;
-				while((o = outputs.poll(200, TimeUnit.MILLISECONDS)) != null) {
-					all.append(o);
+					get(dap.continue_(new ContinueArguments().setThreadId(1)));
+					assertEquals("exited 0", event("exited"));
+					assertEquals("terminated", event("terminated"));
+					StringBuilder all = new StringBuilder();
+					String o;
+					while((o = outputs.poll(200, TimeUnit.MILLISECONDS)) != null) {
+						all.append(o);
+					}
+					assertTrue(all.toString().contains("hello world"), all.toString());
+					assertTrue(all.toString().contains("done 6"), all.toString());
+				} finally {
+					client.close();
+					bridge.close();
+					adapter.close();
 				}
-				assertTrue(all.toString().contains("hello world"), all.toString());
-				assertTrue(all.toString().contains("done 6"), all.toString());
-			} finally {
-				client.close();
-				bridge.close();
-				adapter.close();
 			}
 		}
 	}

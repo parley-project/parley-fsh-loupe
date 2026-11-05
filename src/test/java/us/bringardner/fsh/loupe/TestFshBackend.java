@@ -84,23 +84,24 @@ public class TestFshBackend {
 		// (sockets: a PipedInputStream fails with "Write end dead" once the thread that wrote to it, a
 		// script's, has ended)
 		server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress());
-		Socket c = new Socket(InetAddress.getLoopbackAddress(), server.getLocalPort());
-		Socket a = server.accept();
-		adapter = LoupeConnection.serve(FshAdapterMain::handler, a.getInputStream(), a.getOutputStream());
-		client = LoupeConnection.open(new LoupeEndpoint.Handler() {
-			@Override
-			public CompletableFuture<Object> request(String method, String target, Object params) {
-				throw new LoupeException(LoupeException.UNKNOWN_METHOD, method);
-			}
+		try (Socket c = new Socket(InetAddress.getLoopbackAddress(), server.getLocalPort())) {
+			Socket a = server.accept();
+			adapter = LoupeConnection.serve(FshAdapterMain::handler, a.getInputStream(), a.getOutputStream());
+			client = LoupeConnection.open(new LoupeEndpoint.Handler() {
+				@Override
+				public CompletableFuture<Object> request(String method, String target, Object params) {
+					throw new LoupeException(LoupeException.UNKNOWN_METHOD, method);
+				}
 
-			@SuppressWarnings("unchecked")
-			@Override
-			public void event(String event, String target, Object params) {
-				Map<String,Object> m = new LinkedHashMap<>((Map<String,Object>) params);
-				m.put("event", event);
-				events.add(m);
-			}
-		}, c.getInputStream(), c.getOutputStream());
+				@SuppressWarnings("unchecked")
+				@Override
+				public void event(String event, String target, Object params) {
+					Map<String,Object> m = new LinkedHashMap<>((Map<String,Object>) params);
+					m.put("event", event);
+					events.add(m);
+				}
+			}, c.getInputStream(), c.getOutputStream());
+		}
 		call("hello", null, new Hello().setProtocols(List.of("loupe/1")).setFeatures(List.of(Loupe.FEATURE_SNAPSHOT)).toJson());
 	}
 
