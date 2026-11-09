@@ -75,6 +75,7 @@ public class TestFshBackend {
 
 	private ServerSocket server;
 	private Socket clientSocket;
+	private Socket adapterSocket;
 	private LoupeConnection adapter;
 	private LoupeConnection client;
 	private final BlockingQueue<Map<String,Object>> events = new LinkedBlockingQueue<>();
@@ -88,8 +89,8 @@ public class TestFshBackend {
 		// the client socket stays open for the whole test (closed in disconnect): closing it here, as a
 		// try-with-resources did, closes the connection before hello is sent
 		clientSocket = new Socket(InetAddress.getLoopbackAddress(), server.getLocalPort());
-		Socket a = server.accept();
-		adapter = LoupeConnection.serve(FshAdapterMain::handler, a.getInputStream(), a.getOutputStream());
+		adapterSocket = server.accept();
+		adapter = LoupeConnection.serve(FshAdapterMain::handler, adapterSocket.getInputStream(), adapterSocket.getOutputStream());
 		client = LoupeConnection.open(new LoupeEndpoint.Handler() {
 			@Override
 			public CompletableFuture<Object> request(String method, String target, Object params) {
@@ -107,12 +108,20 @@ public class TestFshBackend {
 		call("hello", null, new Hello().setProtocols(List.of("loupe/1")).setFeatures(List.of(Loupe.FEATURE_SNAPSHOT)).toJson());
 	}
 
+	/** Closes everything connect opened, even when connect failed part way. */
 	@AfterEach
 	public void disconnect() throws Exception {
-		client.close();
-		adapter.close();
-		clientSocket.close();
-		server.close();
+		if( client != null ) {
+			client.close();
+		}
+		if( adapter != null ) {
+			adapter.close();
+		}
+		for(AutoCloseable c : new AutoCloseable[] {clientSocket, adapterSocket, server}) {
+			if( c != null ) {
+				c.close();
+			}
+		}
 	}
 
 	@SuppressWarnings("unchecked")
