@@ -74,6 +74,7 @@ public class TestFshBackend {
 			"");
 
 	private ServerSocket server;
+	private Socket clientSocket;
 	private LoupeConnection adapter;
 	private LoupeConnection client;
 	private final BlockingQueue<Map<String,Object>> events = new LinkedBlockingQueue<>();
@@ -84,24 +85,25 @@ public class TestFshBackend {
 		// (sockets: a PipedInputStream fails with "Write end dead" once the thread that wrote to it, a
 		// script's, has ended)
 		server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress());
-		try (Socket c = new Socket(InetAddress.getLoopbackAddress(), server.getLocalPort())) {
-			Socket a = server.accept();
-			adapter = LoupeConnection.serve(FshAdapterMain::handler, a.getInputStream(), a.getOutputStream());
-			client = LoupeConnection.open(new LoupeEndpoint.Handler() {
-				@Override
-				public CompletableFuture<Object> request(String method, String target, Object params) {
-					throw new LoupeException(LoupeException.UNKNOWN_METHOD, method);
-				}
+		// the client socket stays open for the whole test (closed in disconnect): closing it here, as a
+		// try-with-resources did, closes the connection before hello is sent
+		clientSocket = new Socket(InetAddress.getLoopbackAddress(), server.getLocalPort());
+		Socket a = server.accept();
+		adapter = LoupeConnection.serve(FshAdapterMain::handler, a.getInputStream(), a.getOutputStream());
+		client = LoupeConnection.open(new LoupeEndpoint.Handler() {
+			@Override
+			public CompletableFuture<Object> request(String method, String target, Object params) {
+				throw new LoupeException(LoupeException.UNKNOWN_METHOD, method);
+			}
 
-				@SuppressWarnings("unchecked")
-				@Override
-				public void event(String event, String target, Object params) {
-					Map<String,Object> m = new LinkedHashMap<>((Map<String,Object>) params);
-					m.put("event", event);
-					events.add(m);
-				}
-			}, c.getInputStream(), c.getOutputStream());
-		}
+			@SuppressWarnings("unchecked")
+			@Override
+			public void event(String event, String target, Object params) {
+				Map<String,Object> m = new LinkedHashMap<>((Map<String,Object>) params);
+				m.put("event", event);
+				events.add(m);
+			}
+		}, clientSocket.getInputStream(), clientSocket.getOutputStream());
 		call("hello", null, new Hello().setProtocols(List.of("loupe/1")).setFeatures(List.of(Loupe.FEATURE_SNAPSHOT)).toJson());
 	}
 
@@ -109,6 +111,7 @@ public class TestFshBackend {
 	public void disconnect() throws Exception {
 		client.close();
 		adapter.close();
+		clientSocket.close();
 		server.close();
 	}
 
