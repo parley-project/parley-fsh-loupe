@@ -6,6 +6,10 @@ Built on fsh 1.1.0.
 
 ### Added
 
+- `FshAdapterMain --listen address:port` listens on that address of this machine (`0.0.0.0` or `*`
+  for every address; an IPv6 address in brackets), so a debugger on another machine can connect:
+  remote debugging. `--listen port` is still this machine only. A connection from elsewhere has no
+  login and no encryption, and the adapter says so on standard error when it starts.
 - The launch argument `env`: environment variables (names and values) the script runs with,
   exported, over the adapter's own. fsh-ide gives it the environment a terminal's login shell has.
 - As `fsh script` does, the script runs the file `FSH_ENV` names first (before the debugger is
