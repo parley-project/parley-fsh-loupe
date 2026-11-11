@@ -10,9 +10,19 @@ parley-loupe's bridge), can debug fsh scripts.
 java -cp ... us.bringardner.fsh.loupe.FshAdapterMain
 java -cp ... us.bringardner.fsh.loupe.FshAdapterMain --listen 4711
 
+# Loupe on a socket other machines can reach (see below)
+java -cp ... us.bringardner.fsh.loupe.FshAdapterMain --listen 0.0.0.0:4711
+
 # a DAP debugger an editor can start
 java -cp ... us.bringardner.parley.loupe.dap.DapBridgeMain --exec java -cp ... us.bringardner.fsh.loupe.FshAdapterMain
 ```
+
+`--listen port` accepts connections from this machine only. `--listen address:port` listens
+on that address of this machine (`0.0.0.0` or `*` for all of them; an IPv6 address in brackets),
+so a debugger on another machine can connect. That connection has no login and no encryption,
+and a debugger can run any command as the user the adapter runs as: use it only on a network
+where everyone who can reach the port is trusted. The adapter says so on standard error when it
+starts.
 
 Launch arguments: `script` (a path; any parley-files file system) or `source` (the text) with
 `name` (`$0`), and `args`.
