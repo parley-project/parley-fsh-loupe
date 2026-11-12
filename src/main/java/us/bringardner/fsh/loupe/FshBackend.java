@@ -103,6 +103,15 @@ import us.bringardner.parley.loupe.protocol.VariablesResult;
  * run a command in evaluate (it expands a word: {@code $x}, {@code ${a[1]}},
  * {@code $((n+1))}).
  * <p>
+ * A backend made with a {@link Console} ({@link #FshBackend(Console, String, String)}) is for a
+ * script that is waiting for its debugger ({@code fsh --wait-for-debugger}): it answers
+ * {@code attach}, not {@code launch}; the script runs on the thread that made the backend, with
+ * the shell's own input and output (the debugger gets no {@code output} events), and goes on
+ * without a debugger when the debugger's connection closes.
+ * <p>
+ * Both answer {@link #SOURCE fsh/source}, which is not part of Loupe: the text of a script
+ * where the adapter runs, for a debugger on another machine.
+ * <p>
  * Launch arguments: {@code script} (a path, any parley-files file system) or {@code source}
  * (the text) with {@code name} (what to call it: $0), {@code args} (the script's
  * arguments) and {@code env} (variables to run it with, exported, over the adapter's own
@@ -131,6 +140,21 @@ public class FshBackend implements TargetBackend {
 		return schema;
 	}
 
+	/** A JSON Schema for the attach arguments: there are none (the script is the one waiting). */
+	public static Object attachSchema() {
+		Map<String,Object> schema = new LinkedHashMap<>();
+		schema.put("type", "object");
+		schema.put("properties", new LinkedHashMap<String,Object>());
+		schema.put("additionalProperties", false);
+		return schema;
+	}
+
+	/**
+	 * The method (not part of Loupe) that gives a debugger on another machine a script's text:
+	 * params {@code {path}}, result {@code {path, text}}. No target is needed.
+	 */
+	public static final String SOURCE = "fsh/source";
+
 	private static final int MAX_TEXT = 10000;
 	private static final Pattern NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
@@ -158,6 +182,164 @@ public class FshBackend implements TargetBackend {
 	private volatile ShellContext currentCtx;
 	private volatile Ast.Node currentNode;
 
+	// a script that waits for its debugger (null: this backend launches the script)
+	private final Console attachedConsole;
+	private final Thread attachedThread;
+	private final String attachedCode;
+	private final CompletableFuture<Void> attached = new CompletableFuture<>();
+	private volatile DebugContext contextBefore;
+	// guarded by lock: the debugger has gone and the script runs on without it
+	private boolean detached;
+
+	/** A backend that launches the script. */
+	public FshBackend() {
+		attachedConsole = null;
+		attachedThread = null;
+		attachedCode = null;
+	}
+
+	/**
+	 * A backend for a script that waits for its debugger: the calling thread will run it with
+	 * console, once {@link #attached()} completes.
+	 *
+	 * @param script the script's path
+	 * @param code its text
+	 */
+	public FshBackend(Console console, String script, String code) {
+		attachedConsole = java.util.Objects.requireNonNull(console);
+		attachedThread = Thread.currentThread();
+		attachedCode = code == null ? "" : code;
+		mainPath = absolute(script);
+		mainLines = attachedCode.split("\r?\n", -1);
+	}
+
+	/** True for a backend made for a script that waits for its debugger (it answers attach, not launch). */
+	public boolean isAttaching() {
+		return attachedConsole != null;
+	}
+
+	/** Completes when a debugger has attached: the script may run. */
+	public CompletableFuture<Void> attached() {
+		return attached;
+	}
+
+	@Override
+	public CompletableFuture<Void> attach(Target target, Object args) {
+		if( attachedConsole == null ) {
+			throw new LoupeException(LoupeException.NOT_SUPPORTED, "This adapter starts the script itself: use launch");
+		}
+		synchronized (lock) {
+			if( this.target != null ) {
+				throw new LoupeException(LoupeException.FAILED, "A debugger has attached to this script already");
+			}
+			this.target = target;
+			// (started paused: the first command is where it waits)
+			entryDone = !target.isStartPaused();
+		}
+		console = attachedConsole;
+		scriptThread = attachedThread;
+		launched = new CompletableFuture<>();
+		Debug d = new Debug();
+		d.setCurrentState(DebugContext.RunState.Running);
+		contextBefore = attachedConsole.getDebugContext();
+		attachedConsole.setDebugContext(d);
+		if( !target.isStartPaused()) {
+			launched.complete(null);
+		}
+		attached.complete(null);
+		return launched;
+	}
+
+	/**
+	 * The attached script ended with this status: the debugger is told (unless it ended the
+	 * script itself, or has gone).
+	 */
+	public void ended(int status) {
+		Target t = target;
+		CompletableFuture<Void> l = launched;
+		if( l != null ) {
+			// a script that ended before the entry stop (nothing to run): the attach is done
+			l.complete(null);
+		}
+		boolean wasKilled;
+		synchronized (lock) {
+			if( t == null || detached ) {
+				return;
+			}
+			wasKilled = killed;
+		}
+		if( wasKilled ) {
+			// the debugger ended it: the handler says so, as it answers the terminate
+			long end = System.currentTimeMillis()+2000;
+			try {
+				while(!t.isTerminated() && System.currentTimeMillis() < end) {
+					Thread.sleep(10);
+				}
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+			}
+			return;
+		}
+		try {
+			t.terminated("exit", status);
+		} catch (LoupeException e) {
+			// ended already
+		}
+	}
+
+	/**
+	 * The debugger's connection has closed. A script this backend launched is ended (nobody is
+	 * left to see it); one a debugger attached to runs on without the debugger.
+	 */
+	public void connectionClosed() {
+		if( attachedConsole == null ) {
+			Target t = target;
+			if( t != null ) {
+				terminate(t);
+			}
+			return;
+		}
+		synchronized (lock) {
+			if( target == null || detached ) {
+				return;
+			}
+			detached = true;
+			holding = false;
+			pauseRequested = false;
+			stepKind = null;
+			lock.notifyAll();
+		}
+		attachedConsole.setDebugContext(contextBefore);
+	}
+
+	/**
+	 * Answers what Loupe doesn't define: {@link #SOURCE}. It is the adapter handler's fallback.
+	 */
+	public CompletableFuture<Object> extension(String method, String target, Object params) {
+		if( !SOURCE.equals(method)) {
+			throw new LoupeException(LoupeException.UNKNOWN_METHOD, "Unknown method "+method);
+		}
+		Object path = params instanceof Map ? ((Map<?,?>) params).get("path") : null;
+		if( !(path instanceof String) || ((String) path).isEmpty()) {
+			throw new LoupeException(LoupeException.INVALID_PARAMS, SOURCE+" needs a path");
+		}
+		String text;
+		if( attachedCode != null && samePath((String) path, mainPath)) {
+			// (the text the waiting script was read from: the file may have changed since)
+			text = attachedCode;
+		} else {
+			try {
+				text = read((String) path);
+			} catch (IOException | RuntimeException e) {
+				throw new LoupeException(LoupeException.FAILED, "Can't read "+path+": "+e.getMessage());
+			}
+		}
+		Map<String,Object> ret = new LinkedHashMap<>();
+		ret.put("path", path);
+		ret.put("text", text);
+		return done(ret);
+	}
+
 	@Override
 	public boolean supports(String method) {
 		switch(method) {
@@ -184,6 +366,9 @@ public class FshBackend implements TargetBackend {
 	@SuppressWarnings("unchecked")
 	@Override
 	public CompletableFuture<Void> launch(Target target, Object args) {
+		if( attachedConsole != null ) {
+			throw new LoupeException(LoupeException.NOT_SUPPORTED, "A script is waiting here for its debugger: use attach");
+		}
 		if( this.target != null ) {
 			throw new LoupeException(LoupeException.FAILED, "This adapter runs one script per connection");
 		}
@@ -385,6 +570,9 @@ public class FshBackend implements TargetBackend {
 				return;	// an evaluate's commands, or another thread's: not the script's
 			}
 			synchronized (lock) {
+				if( detached ) {
+					return;
+				}
 				if( killed ) {
 					throw new LoopControlException(LoopControl.Break, 100000);
 				}
@@ -413,6 +601,9 @@ public class FshBackend implements TargetBackend {
 		String reason = null;
 		boolean entry = false;
 		synchronized (lock) {
+			if( detached ) {
+				return;
+			}
 			if( !entryDone ) {
 				entryDone = true;
 				entry = true;
@@ -454,7 +645,8 @@ public class FshBackend implements TargetBackend {
 				reason = "breakpoint";
 			} else if( pauseRequested ) {
 				reason = "pause";
-			} else if( stepKind != null ) {
+			} else if( stepKind != null && !entry ) {
+				// (a step asked for at the entry stop starts with this command: it is not where the step ends)
 				switch(stepKind) {
 				case StepKind.IN:
 					// (the next command to start is a new one)
@@ -472,7 +664,7 @@ public class FshBackend implements TargetBackend {
 					break;
 				}
 			}
-			if( reason == null ) {
+			if( reason == null || detached ) {
 				return;
 			}
 			holding = true;
@@ -508,6 +700,9 @@ public class FshBackend implements TargetBackend {
 		} catch (LoupeException e) {
 			// the target was terminated under us
 			synchronized (lock) {
+				if( detached ) {
+					return;
+				}
 				holding = false;
 				killed = true;
 				lock.notifyAll();
@@ -951,6 +1146,9 @@ public class FshBackend implements TargetBackend {
 		if( j != null ) {
 			j.handleSignal(ConsoleSignal.Kill);
 			j.interuptJob();
+		} else if( attachedThread != null ) {
+			// (an attached script: it ends at its next command; a builtin that is waiting is woken)
+			attachedThread.interrupt();
 		}
 		return done(null);
 	}
