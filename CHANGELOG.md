@@ -14,6 +14,9 @@ Built on fsh 1.1.0.
   there for a debugger, which sends `attach` (`FshDebuggerProvider`, fsh's `DebuggerProvider`). The
   script runs in the shell that was started, with its own input and output; when the debugger
   goes it runs on without one.
+- The port `--listen` opens, and the port a script waits on, take a DAP debugger as well as a Loupe
+  one: which it is is told from the debugger's first message (`DebuggerConnection`), and a DAP
+  debugger is answered through parley-loupe's bridge in front of the same adapter.
 - `fsh/source` (not part of Loupe): the text of a script where the adapter runs, for a debugger on
   another machine.
 - A script launched over a connection is ended when the connection closes (it used to run on

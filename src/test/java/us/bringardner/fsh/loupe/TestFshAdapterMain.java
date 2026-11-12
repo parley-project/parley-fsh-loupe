@@ -127,4 +127,74 @@ public class TestFshAdapterMain {
 		}
 		served.get(20, TimeUnit.SECONDS);
 	}
+
+	/**
+	 * The port takes a DAP debugger too (told from its first message), and what isn't a debugger
+	 * at all is dropped without ending the adapter.
+	 */
+	@Test
+	public void theSamePortServesADapDebugger() throws Exception {
+		ServerSocket server = FshAdapterMain.open("0");
+		CompletableFuture<Void> served = CompletableFuture.runAsync(()->{
+			try {
+				FshAdapterMain.serve(server);
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
+		});
+		try {
+			// not a debugger: a line of text, then gone
+			try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), server.getLocalPort())) {
+				socket.getOutputStream().write("GET / HTTP/1.0\r\n\r\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+				socket.getOutputStream().flush();
+			}
+			// and one that connects and says nothing
+			new Socket(InetAddress.getLoopbackAddress(), server.getLocalPort()).close();
+
+			java.util.concurrent.BlockingQueue<String> events = new java.util.concurrent.LinkedBlockingQueue<>();
+			try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), server.getLocalPort())) {
+				us.bringardner.parley.dap.DapConnection client = us.bringardner.parley.dap.DapConnection.client(
+						new us.bringardner.parley.dap.protocol.IDebugClient() {
+							@Override
+							public void initialized() {
+								events.add("initialized");
+							}
+
+							@Override
+							public void output(us.bringardner.parley.dap.protocol.OutputEventBody b) {
+								events.add("output "+b.getOutput());
+							}
+
+							@Override
+							public void exited(us.bringardner.parley.dap.protocol.ExitedEventBody b) {
+								events.add("exited "+b.getExitCode());
+							}
+						}, socket.getInputStream(), socket.getOutputStream());
+				try {
+					us.bringardner.parley.dap.protocol.IDebugAdapter dap = client.getAdapter();
+					assertNotNull(dap.initialize(new us.bringardner.parley.dap.protocol.InitializeRequestArguments().setAdapterID("fsh")).get(20, TimeUnit.SECONDS));
+					dap.launch(new us.bringardner.parley.dap.protocol.LaunchRequestArguments()
+							.setExtra(new java.util.LinkedHashMap<>(Map.of("source", "echo over dap\nexit 4\n", "name", "d.fsh")))).get(20, TimeUnit.SECONDS);
+					dap.configurationDone(new us.bringardner.parley.dap.protocol.ConfigurationDoneArguments()).get(20, TimeUnit.SECONDS);
+					StringBuilder seen = new StringBuilder();
+					for(;;) {
+						String e = events.poll(20, TimeUnit.SECONDS);
+						assertNotNull(e, "no exit; saw "+seen);
+						seen.append(e).append('|');
+						if( e.startsWith("exited")) {
+							assertEquals("exited 4", e);
+							break;
+						}
+					}
+					assertTrue(seen.toString().contains("output over dap"), seen.toString());
+				} finally {
+					client.close();
+				}
+			}
+			assertFalse(served.isDone());
+		} finally {
+			server.close();
+		}
+		served.get(20, TimeUnit.SECONDS);
+	}
 }

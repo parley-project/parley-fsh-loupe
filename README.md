@@ -17,6 +17,11 @@ java -cp ... us.bringardner.fsh.loupe.FshAdapterMain --listen 0.0.0.0:4711
 java -cp ... us.bringardner.parley.loupe.dap.DapBridgeMain --exec java -cp ... us.bringardner.fsh.loupe.FshAdapterMain
 ```
 
+A debugger that connects to the port may speak Loupe or DAP: the adapter tells which from its
+first message, so an editor's DAP client can connect straight to the port (no bridge to start),
+and so can fsh-ide's Debug Remote in either protocol. The same holds for the port a script waits
+on (below). Over DAP a debugger doesn't get a script's text (`fsh/source` is Loupe's).
+
 `--listen port` accepts connections from this machine only. `--listen address:port` listens
 on that address of this machine (`0.0.0.0` or `*` for all of them; an IPv6 address in brackets),
 so a debugger on another machine can connect. That connection has no login and no encryption,
