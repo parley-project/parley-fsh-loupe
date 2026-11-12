@@ -40,7 +40,8 @@ import us.bringardner.parley.loupe.protocol.PeerInfo;
  * The Loupe adapter for fsh. With no arguments it speaks Loupe on its standard input and
  * output, so {@code DapBridgeMain --exec java -cp ... us.bringardner.fsh.loupe.FshAdapterMain}
  * is a DAP debugger for fsh scripts; {@code --listen port} accepts connections one at a time
- * on the loopback address instead (only programs on this machine can connect).
+ * on the loopback address instead (only programs on this machine can connect). A debugger
+ * that connects to the port may speak Loupe or DAP: see {@link DebuggerConnection}.
  * <p>
  * {@code --listen address:port} listens on that address of this machine, for a debugger on
  * another machine: an address of one of its network interfaces, or {@code 0.0.0.0} (or
@@ -148,10 +149,17 @@ public final class FshAdapterMain {
 			}
 			try (Socket socket = s) {
 				FshBackend backend = new FshBackend();
-				LoupeConnection c = LoupeConnection.serve(e -> handler(e, backend), socket.getInputStream(), socket.getOutputStream());
-				c.closed().join();
-				// (the debugger has gone: its script does not run on unseen)
-				backend.connectionClosed();
+				// (Loupe or DAP: told from the debugger's first message)
+				try (DebuggerConnection c = DebuggerConnection.serve(backend, socket.getInputStream(), socket.getOutputStream())) {
+					if( c != null ) {
+						c.closed().join();
+					}
+				} catch (IOException e) {
+					// not a debugger: the next one is served
+				} finally {
+					// (the debugger has gone: its script does not run on unseen)
+					backend.connectionClosed();
+				}
 			}
 		}
 	}

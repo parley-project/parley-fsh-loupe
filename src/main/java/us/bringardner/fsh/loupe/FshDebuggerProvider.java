@@ -32,12 +32,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import us.bringardner.fsh.Console;
 import us.bringardner.fsh.spi.DebuggerProvider;
-import us.bringardner.parley.loupe.LoupeConnection;
 
 /**
  * What {@code fsh --wait-for-debugger [address:]port script} waits with: it listens there (as
  * {@link FshAdapterMain}'s {@code --listen} does, with the same warning for an address other
- * machines can reach) until a Loupe debugger connects and sends {@code attach}; the script
+ * machines can reach) until a debugger connects (speaking Loupe or DAP, see
+ * {@link DebuggerConnection}) and sends {@code attach}; the script
  * then runs under that debugger, in the shell that was started. A connection that closes
  * before it attaches is forgotten, and the wait goes on. Once a debugger has attached the
  * port is closed: when that debugger goes, the script runs on without one.
@@ -69,12 +69,18 @@ public class FshDebuggerProvider implements DebuggerProvider {
 		for(;;) {
 			Socket socket = server.accept();
 			FshBackend backend = new FshBackend(console, script, code);
-			LoupeConnection c;
+			DebuggerConnection c;
 			try {
-				c = LoupeConnection.serve(e -> FshAdapterMain.handler(e, backend), socket.getInputStream(), socket.getOutputStream());
+				// (Loupe or DAP: told from the debugger's first message)
+				c = DebuggerConnection.serve(backend, socket.getInputStream(), socket.getOutputStream());
 			} catch (IOException | RuntimeException e) {
+				// not a debugger: the script still waits
 				close(socket);
-				throw e;
+				continue;
+			}
+			if( c == null ) {
+				close(socket);
+				continue;
 			}
 			CompletableFuture.anyOf(backend.attached(), c.closed()).join();
 			if( !backend.attached().isDone()) {
@@ -106,7 +112,7 @@ public class FshDebuggerProvider implements DebuggerProvider {
 	 * the script, the answer to its last request). So: a moment for an answer on its way, then
 	 * this end says it has no more to send, and waits (not for long) for the debugger to close.
 	 */
-	private static void finish(LoupeConnection c, Socket socket) {
+	private static void finish(DebuggerConnection c, Socket socket) {
 		// (the script's thread may have been interrupted by a terminate: the waits below are still wanted)
 		boolean interrupted = Thread.interrupted();
 		try {
