@@ -84,6 +84,8 @@ public class TestAttach {
 	private final ByteArrayOutputStream out = new ByteArrayOutputStream();
 	private final ByteArrayOutputStream err = new ByteArrayOutputStream();
 	private CompletableFuture<Integer> shell;
+	// where the shell waits (0: none started)
+	private int port;
 	private final List<Client> clients = new ArrayList<>();
 
 	/** A debugger's side of a connection, and everything it opened. */
@@ -149,6 +151,15 @@ public class TestAttach {
 			c.close();
 		}
 		if( shell != null ) {
+			if( !shell.isDone() && port > 0 ) {
+				// a test that failed before it attached: the shell would wait for ever (with its port and
+				// thread), so a debugger attaches and lets it run to its end
+				try (Client c = new Client(port)) {
+					c.call("attach", null, Map.of("target", "t1", "args", Map.of()));
+				} catch (Exception e) {
+					// a debugger had attached (the port is closed): closing it above let the script run on
+				}
+			}
 			shell.get(20, TimeUnit.SECONDS);
 		}
 	}
@@ -169,12 +180,13 @@ public class TestAttach {
 		}, "test-shell");
 		t.setDaemon(true);
 		t.start();
-		Pattern port = Pattern.compile("waiting for a debugger on port (\\d+)");
+		Pattern where = Pattern.compile("waiting for a debugger on port (\\d+)");
 		long end = System.currentTimeMillis()+20000;
 		for(;;) {
-			Matcher m = port.matcher(new String(err.toByteArray(), StandardCharsets.UTF_8));
+			Matcher m = where.matcher(new String(err.toByteArray(), StandardCharsets.UTF_8));
 			if( m.find()) {
-				return Integer.parseInt(m.group(1));
+				port = Integer.parseInt(m.group(1));
+				return port;
 			}
 			assertFalse(shell.isDone(), "the shell ended without waiting: "+err);
 			assertTrue(System.currentTimeMillis() < end, "the shell never said where it waits: "+err);
