@@ -56,10 +56,34 @@ public final class FshAdapterMain {
 
 	/** A handler for a connection; every connection gets its own backend (one script each). */
 	public static AdapterHandler handler(LoupeEndpoint endpoint) {
-		return new AdapterHandler(endpoint, new FshBackend())
+		return handler(endpoint, new FshBackend());
+	}
+
+	/**
+	 * A handler for a connection that uses backend: one that launches (the caller can then tell
+	 * it when the connection closes), or one for a script waiting for its debugger, which
+	 * answers attach.
+	 */
+	public static AdapterHandler handler(LoupeEndpoint endpoint, FshBackend backend) {
+		AdapterHandler ret = new AdapterHandler(endpoint, backend)
 				.setAdapter(new PeerInfo().setName("fsh-loupe").setVersion("1"))
 				.setFeatures(List.of(Loupe.FEATURE_SNAPSHOT))
-				.setLaunchSchema(FshBackend.launchSchema());
+				.setLaunchSchema(FshBackend.launchSchema())
+				.setFallback(new LoupeEndpoint.Handler() {
+					@Override
+					public java.util.concurrent.CompletableFuture<Object> request(String method, String target, Object params) {
+						return backend.extension(method, target, params);
+					}
+
+					@Override
+					public void event(String event, String target, Object params) {
+						// none are expected
+					}
+				});
+		if( backend.isAttaching()) {
+			ret.setAttachSchema(FshBackend.attachSchema());
+		}
+		return ret;
 	}
 
 	/**
@@ -123,8 +147,11 @@ public final class FshAdapterMain {
 				throw e;
 			}
 			try (Socket socket = s) {
-				LoupeConnection c = LoupeConnection.serve(FshAdapterMain::handler, socket.getInputStream(), socket.getOutputStream());
+				FshBackend backend = new FshBackend();
+				LoupeConnection c = LoupeConnection.serve(e -> handler(e, backend), socket.getInputStream(), socket.getOutputStream());
 				c.closed().join();
+				// (the debugger has gone: its script does not run on unseen)
+				backend.connectionClosed();
 			}
 		}
 	}
@@ -155,7 +182,9 @@ public final class FshAdapterMain {
 		// Standard output carries the protocol: nothing else may write to it
 		java.io.PrintStream protocolOut = System.out;
 		System.setOut(System.err);
-		LoupeConnection c = LoupeConnection.serve(FshAdapterMain::handler, System.in, protocolOut);
+		FshBackend backend = new FshBackend();
+		LoupeConnection c = LoupeConnection.serve(e -> handler(e, backend), System.in, protocolOut);
 		c.closed().join();
+		backend.connectionClosed();
 	}
 }

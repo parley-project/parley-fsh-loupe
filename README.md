@@ -24,6 +24,33 @@ and a debugger can run any command as the user the adapter runs as: use it only 
 where everyone who can reach the port is trusted. The adapter says so on standard error when it
 starts.
 
+When the debugger's connection closes, a script it launched is ended.
+
+## Attach: a script that waits for its debugger
+
+```
+fsh --wait-for-debugger 4711 script.fsh arguments
+fsh --wait-for-debugger 0.0.0.0:4711 script.fsh arguments
+```
+
+With fsh-loupe on fsh's class path (or in one of its plugin folders), fsh starts the script as
+`fsh script` does, says on standard error that it is waiting, and waits at that port (written
+as `--listen`'s, with the same warning) until a debugger connects and sends `attach` (no
+arguments). The script then runs under that debugger, in the shell that was started: its
+input and output are the shell's own, so the debugger gets no `output` events. Attach with
+`startPaused` to set breakpoints before the first command. A connection that closes without
+attaching is forgotten and the script goes on waiting; once a debugger has attached the port
+is closed, and when that debugger goes the script runs on without one. `terminate` ends the
+script. The adapter of a waiting script answers `attach`, not `launch`; `FshAdapterMain`
+answers `launch`, not `attach`.
+
+## The script's text: `fsh/source`
+
+A debugger on another machine has no copy of the script. `fsh/source` (a method of this
+adapter, not part of Loupe; no target) gives it: params `{"path": ...}`, result
+`{"path": ..., "text": ...}`. The path is read where the adapter runs (any parley-files file
+system); for a waiting script's own path the text is what the shell read when it started.
+
 Launch arguments: `script` (a path; any parley-files file system) or `source` (the text) with
 `name` (`$0`), and `args`.
 
