@@ -1,8 +1,8 @@
 # fsh-loupe
 
 A [Loupe](../parley-loupe/PROTOCOL.md) debugging adapter for [fsh](../fsh), the FileSource Shell.
-It runs a script under fsh's `DebugContext` (the hooks fsh-ide uses) and answers Loupe
-requests, so fsh-ide, or any editor that speaks the Debug Adapter Protocol (through
+It runs a script under fsh's `DebugContext` (the hooks Fsh Studio uses) and answers Loupe
+requests, so Fsh Studio, or any editor that speaks the Debug Adapter Protocol (through
 parley-loupe's bridge), can debug fsh scripts.
 
 ```
@@ -19,7 +19,7 @@ java -cp ... us.bringardner.parley.loupe.dap.DapBridgeMain --exec java -cp ... u
 
 A debugger that connects to the port may speak Loupe or DAP: the adapter tells which from its
 first message, so an editor's DAP client can connect straight to the port (no bridge to start),
-and so can fsh-ide's Debug Remote in either protocol. The same holds for the port a script waits
+and so can Fsh Studio's Debug Remote in either protocol. The same holds for the port a script waits
 on (below). Over DAP a debugger doesn't get a script's text (`fsh/source` is Loupe's).
 
 `--listen port` accepts connections from this machine only. `--listen address:port` listens
