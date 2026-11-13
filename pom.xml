@@ -9,7 +9,7 @@
 	<version>2.0.0-SNAPSHOT</version>
 	<name>fsh-loupe</name>
 	<description>A Loupe debugging adapter for fsh: runs a script under fsh's DebugContext and answers
-		Loupe requests (breakpoints, steps, stack, variables, evaluate), so fsh-ide or any DAP client
+		Loupe requests (breakpoints, steps, stack, variables, evaluate), so Fsh Studio or any DAP client
 		(through parley-loupe's bridge) can debug fsh scripts.</description>
 
 	<url>https://github.com/parley-project/parley-fsh-loupe</url>
