@@ -1,6 +1,6 @@
 # fsh-loupe
 
-A [Loupe](../parley-loupe/PROTOCOL.md) debugging adapter for [fsh](../fsh), the FileSource Shell.
+A [Loupe](../parley-loupe/PROTOCOL.md) debugging adapter for [fsh](../parley-fsh), the FileSource Shell.
 It runs a script under fsh's `DebugContext` (the hooks Fsh Studio uses) and answers Loupe
 requests, so Fsh Studio, or any editor that speaks the Debug Adapter Protocol (through
 parley-loupe's bridge), can debug fsh scripts.
