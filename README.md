@@ -84,6 +84,6 @@ Launch arguments: `script` (a path; any parley-files file system) or `source` (t
 
 ## Building
 
-fsh-loupe needs `us.bringardner:fsh` and `us.bringardner.parley:parley-loupe` (both
+fsh-loupe needs `us.bringardner:parley-fsh` and `us.bringardner.parley:parley-loupe` (both
 `1.0.0-SNAPSHOT`) in the local repository: `mvn install -DskipTests` in each. fsh's own build
 needs the Parley FTP, SFTP and SSH modules installed first.
