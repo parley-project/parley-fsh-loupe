@@ -4,6 +4,9 @@
 
 Built on fsh 1.1.0.
 
+- Maven coordinates: `us.bringardner:fsh-loupe` → `us.bringardner:parley-fsh-loupe`, built on
+  `us.bringardner:parley-fsh`.
+
 ### Added
 
 - `FshAdapterMain --listen address:port` listens on that address of this machine (`0.0.0.0` or `*`
